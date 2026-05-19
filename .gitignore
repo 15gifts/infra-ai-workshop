@@ -1,2 +1,2 @@
-reports/
+reports/**/*.html
 .DS_Store
