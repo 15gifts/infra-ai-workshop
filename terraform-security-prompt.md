@@ -237,8 +237,34 @@ Create the directory if it does not exist.
       <!-- Unresolved remote modules (not scanned) list — if any -->
 
     <section class="executive-summary">
-      <!-- Overall risk level pill: CRITICAL / HIGH / PASS -->
-      <!-- One-paragraph plain-English summary of the security posture -->
+      <!--
+        TL;DR EXECUTIVE SUMMARY — this is the first thing a reader sees.
+        Keep it scannable. No jargon. Write it as if briefing a non-technical manager.
+
+        Contents:
+        - Overall risk level pill (large, prominent): CRITICAL / HIGH / PASS
+          - CRITICAL if any CRITICAL findings exist
+          - HIGH if only HIGH findings exist
+          - PASS if no findings
+
+        - Three-column stat bar:
+            CRITICAL findings: N  |  HIGH findings: N  |  Services affected: N
+
+        - TL;DR paragraph (3–5 sentences max):
+          State the overall risk in plain English. Name the most dangerous finding.
+          Name the services with the most exposure. End with one sentence on
+          what should be fixed first.
+
+          Example: "This codebase has critical security exposure across 6 AWS services.
+          The most severe issue is an IAM policy granting unrestricted access to all AWS
+          resources, which would allow a compromised credential to take full control of
+          the account. Three S3 buckets storing payment and audit data are publicly
+          readable with no encryption. Immediate priority should be revoking the wildcard
+          IAM policy and blocking public S3 access before any other remediation."
+
+        - Top 3 most critical findings listed as a bulleted TL;DR hit-list,
+          each with: severity badge | rule name | one-line plain-English impact
+      -->
 
     <section class="findings-summary">
       <!-- Sortable table: ID | Severity | Service | Rule | File | Line | AVD -->
