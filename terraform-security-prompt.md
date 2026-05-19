@@ -104,6 +104,7 @@ Read every file in the scan scope. For each finding record:
 | **Severity** | `CRITICAL` or `HIGH` |
 | **Category** | One of the categories below |
 | **Rule** | Short rule name, e.g. `OPEN_SSH_INGRESS` |
+| **AVD Reference** | Aqua AVD URL for this rule (see per-rule URLs in categories below) |
 | **File** | Path relative to the selected project root |
 | **Line** | Line number(s) |
 | **Resource** | The Terraform resource name/label where applicable |
@@ -119,67 +120,71 @@ Assign severity based on the following guidance — do not deviate from these as
 
 #### Security categories and severity assignments
 
+Each rule below includes its AVD reference URL. Use this URL verbatim as the `AVD Reference` field for any matching finding. For rules marked with a category-level URL, use that URL — no specific AVD ID exists for that check.
+
 **IAM & Permissions**
-- `CRITICAL` — Wildcard actions (`"Action": "*"`) or wildcard resources (`"Resource": "*"`) in IAM policies without compensating conditions
-- `CRITICAL` — `assume_role_policy` allowing any principal (`"AWS": "*"` or `"*"`)
-- `CRITICAL` — Lambda execution roles with `AdministratorAccess` or equivalent wildcard policies
-- `CRITICAL` — Terraform state backend with no encryption (`encrypt = false` or absent on S3 backend) — state files contain plaintext secrets and resource ARNs
-- `HIGH` — IAM inline policies on users, groups, or roles (prefer managed policies for auditability)
-- `HIGH` — Missing MFA condition on IAM roles used by humans
-- `HIGH` — `iam_role` with overly broad trust relationship (e.g. any service in any account)
+- `CRITICAL` — Wildcard actions (`"Action": "*"`) or wildcard resources (`"Resource": "*"`) in IAM policies without compensating conditions → https://avd.aquasec.com/misconfig/aws/iam/avd-aws-0057/
+- `CRITICAL` — `assume_role_policy` allowing any principal (`"AWS": "*"` or `"*"`) → https://avd.aquasec.com/misconfig/aws/iam/avd-aws-0056/
+- `CRITICAL` — Lambda execution roles with `AdministratorAccess` or equivalent wildcard policies → https://avd.aquasec.com/misconfig/aws/iam/avd-aws-0057/
+- `CRITICAL` — Terraform state backend with no encryption (`encrypt = false` or absent on S3 backend) → https://avd.aquasec.com/misconfig/aws/
+- `HIGH` — IAM inline policies on users, groups, or roles → https://avd.aquasec.com/misconfig/aws/iam/avd-aws-0050/
+- `HIGH` — Missing MFA condition on IAM roles used by humans → https://avd.aquasec.com/misconfig/aws/iam/
+- `HIGH` — `iam_role` with overly broad trust relationship → https://avd.aquasec.com/misconfig/aws/iam/
 
 **Secrets & Credentials**
-- `CRITICAL` — Hardcoded passwords, tokens, API keys, or private keys in any `.tf` or `.tfvars` file
-- `CRITICAL` — `aws_secretsmanager_secret_version` with `secret_string` set to a literal value rather than a `data` or `var` reference
-- `HIGH` — Variables with names suggesting secrets (`password`, `secret`, `token`, `key`, `api_key`) where `sensitive = true` is absent
-- `HIGH` — Secrets passed as plaintext `environment` variables to Lambda, ECS task definitions, or EKS pods (prefer `valueFrom` referencing Secrets Manager or SSM Parameter Store)
+- `CRITICAL` — Hardcoded passwords, tokens, API keys, or private keys in any `.tf` or `.tfvars` file → https://avd.aquasec.com/misconfig/aws/
+- `CRITICAL` — `aws_secretsmanager_secret_version` with `secret_string` set to a literal value → https://avd.aquasec.com/misconfig/aws/secretsmanager/
+- `HIGH` — Variables suggesting secrets (`password`, `secret`, `token`, `key`, `api_key`) where `sensitive = true` is absent → https://avd.aquasec.com/misconfig/aws/
+- `HIGH` — Secrets passed as plaintext `environment` variables to Lambda, ECS, or EKS → https://avd.aquasec.com/misconfig/aws/
 
 **Network & Public Exposure**
-- `CRITICAL` — Security group ingress rules open to `0.0.0.0/0` or `::/0` on sensitive ports: 22 (SSH), 3389 (RDP), 5432 (PostgreSQL), 3306 (MySQL), 1433 (MSSQL), 6379 (Redis), 27017 (MongoDB), 9200 (Elasticsearch)
-- `CRITICAL` — S3 bucket `acl` set to `"public-read"` or `"public-read-write"`
-- `CRITICAL` — S3 `aws_s3_bucket_public_access_block` with `block_public_acls`, `block_public_policy`, `ignore_public_acls`, or `restrict_public_buckets` set to `false`
-- `CRITICAL` — S3 bucket policy that allows `"Principal": "*"` without a condition
-- `CRITICAL` — RDS instance or cluster with `publicly_accessible = true`
-- `HIGH` — `aws_s3_bucket` with no associated `aws_s3_bucket_public_access_block` resource
-- `HIGH` — ALB or API Gateway stage serving HTTP without a redirect to HTTPS
-- `HIGH` — CloudFront distribution `viewer_protocol_policy` set to `"allow-all"`
+- `CRITICAL` — Security group ingress open to `0.0.0.0/0` or `::/0` on port 22 (SSH) → https://avd.aquasec.com/misconfig/aws/ec2/avd-aws-0107/
+- `CRITICAL` — Security group ingress open to `0.0.0.0/0` or `::/0` on port 3389 (RDP) → https://avd.aquasec.com/misconfig/aws/ec2/avd-aws-0108/
+- `CRITICAL` — Security group ingress open to `0.0.0.0/0` or `::/0` on other sensitive ports (5432, 3306, 1433, 6379, 27017, 9200) → https://avd.aquasec.com/misconfig/aws/ec2/avd-aws-0107/
+- `CRITICAL` — S3 bucket `acl` set to `"public-read"` or `"public-read-write"` → https://avd.aquasec.com/misconfig/aws/s3/avd-aws-0090/
+- `CRITICAL` — S3 `aws_s3_bucket_public_access_block` with any block attribute set to `false` → https://avd.aquasec.com/misconfig/aws/s3/avd-aws-0092/
+- `CRITICAL` — S3 bucket policy allowing `"Principal": "*"` without a condition → https://avd.aquasec.com/misconfig/aws/s3/avd-aws-0090/
+- `CRITICAL` — RDS instance or cluster with `publicly_accessible = true` → https://avd.aquasec.com/misconfig/aws/rds/avd-aws-0077/
+- `HIGH` — `aws_s3_bucket` with no associated `aws_s3_bucket_public_access_block` resource → https://avd.aquasec.com/misconfig/aws/s3/avd-aws-0092/
+- `HIGH` — ALB or API Gateway stage serving HTTP without a redirect to HTTPS → https://avd.aquasec.com/misconfig/aws/elb/
+- `HIGH` — CloudFront `viewer_protocol_policy` set to `"allow-all"` → https://avd.aquasec.com/misconfig/aws/cloudfront/
 
 **Encryption at Rest**
-- `HIGH` — S3 bucket with no `aws_s3_bucket_server_side_encryption_configuration`
-- `HIGH` — RDS instance or cluster with `storage_encrypted = false` or attribute absent
-- `HIGH` — EBS volume with `encrypted = false` or attribute absent
-- `HIGH` — EBS snapshot with `encrypted = false`
-- `HIGH` — SQS queue with no `kms_master_key_id`
-- `HIGH` — SNS topic with no `kms_master_key_id`
-- `HIGH` — DynamoDB table with `server_side_encryption` block absent or `enabled = false`
-- `HIGH` — ElastiCache replication group with `at_rest_encryption_enabled = false`
-- `HIGH` — KMS key with `enable_key_rotation = false` or rotation attribute absent
+- `HIGH` — S3 bucket with no `aws_s3_bucket_server_side_encryption_configuration` → https://avd.aquasec.com/misconfig/aws/s3/avd-aws-0088/
+- `HIGH` — RDS instance or cluster with `storage_encrypted = false` or absent → https://avd.aquasec.com/misconfig/aws/rds/avd-aws-0079/
+- `HIGH` — EBS volume with `encrypted = false` or absent → https://avd.aquasec.com/misconfig/aws/ec2/avd-aws-0131/
+- `HIGH` — EBS snapshot with `encrypted = false` → https://avd.aquasec.com/misconfig/aws/ec2/avd-aws-0131/
+- `HIGH` — SQS queue with no `kms_master_key_id` → https://avd.aquasec.com/misconfig/aws/sqs/
+- `HIGH` — SNS topic with no `kms_master_key_id` → https://avd.aquasec.com/misconfig/aws/sns/
+- `HIGH` — DynamoDB table with `server_side_encryption` absent or `enabled = false` → https://avd.aquasec.com/misconfig/aws/dynamodb/avd-aws-0024/
+- `HIGH` — ElastiCache replication group with `at_rest_encryption_enabled = false` → https://avd.aquasec.com/misconfig/aws/elasticache/
+- `HIGH` — KMS key with `enable_key_rotation = false` or absent → https://avd.aquasec.com/misconfig/aws/kms/avd-aws-0065/
 
 **Encryption in Transit**
-- `HIGH` — ElastiCache replication group with `transit_encryption_enabled = false`
-- `HIGH` — MSK cluster with `encryption_in_transit` client broker set to `"PLAINTEXT"`
-- `HIGH` — RDS instance with `iam_database_authentication_enabled = false` (promotes plaintext password auth)
+- `HIGH` — ElastiCache replication group with `transit_encryption_enabled = false` → https://avd.aquasec.com/misconfig/aws/elasticache/
+- `HIGH` — MSK cluster with `encryption_in_transit` client broker set to `"PLAINTEXT"` → https://avd.aquasec.com/misconfig/aws/msk/
+- `HIGH` — RDS instance with `iam_database_authentication_enabled = false` → https://avd.aquasec.com/misconfig/aws/rds/
 
 **Logging & Auditing**
-- `HIGH` — S3 bucket with no `aws_s3_bucket_logging` resource
-- `HIGH` — CloudTrail with `enable_log_file_validation = false`
-- `HIGH` — CloudTrail that is not multi-region (`is_multi_region_trail = false` or absent)
-- `HIGH` — VPC with no associated `aws_flow_log` resource
-- `HIGH` — API Gateway stage with no `access_log_settings`
-- `HIGH` — ALB with `access_logs` block absent or `enabled = false`
+- `HIGH` — S3 bucket with no `aws_s3_bucket_logging` resource → https://avd.aquasec.com/misconfig/aws/s3/avd-aws-0089/
+- `HIGH` — CloudTrail with `enable_log_file_validation = false` → https://avd.aquasec.com/misconfig/aws/cloudtrail/avd-aws-0015/
+- `HIGH` — CloudTrail not multi-region (`is_multi_region_trail = false` or absent) → https://avd.aquasec.com/misconfig/aws/cloudtrail/avd-aws-0014/
+- `HIGH` — VPC with no associated `aws_flow_log` resource → https://avd.aquasec.com/misconfig/aws/ec2/avd-aws-0178/
+- `HIGH` — API Gateway stage with no `access_log_settings` → https://avd.aquasec.com/misconfig/aws/apigateway/
+- `HIGH` — ALB with `access_logs` block absent or `enabled = false` → https://avd.aquasec.com/misconfig/aws/elb/
 
 **Container & Serverless**
-- `HIGH` — ECR repository with `image_scanning_configuration` absent or `scan_on_push = false`
-- `HIGH` — ECR repository with `image_tag_mutability = "MUTABLE"` (allows tag overwriting, breaking immutable deploys)
-- `HIGH` — Lambda function with `tracing_config` absent or `mode = "PassThrough"`
+- `HIGH` — ECR repository with `image_scanning_configuration` absent or `scan_on_push = false` → https://avd.aquasec.com/misconfig/aws/ecr/avd-aws-0030/
+- `HIGH` — ECR repository with `image_tag_mutability = "MUTABLE"` → https://avd.aquasec.com/misconfig/aws/ecr/avd-aws-0031/
+- `HIGH` — Lambda function with `tracing_config` absent or `mode = "PassThrough"` → https://avd.aquasec.com/misconfig/aws/lambda/
 
 **Resilience & Safety**
-- `HIGH` — RDS instance or cluster with `deletion_protection = false` or attribute absent
-- `HIGH` — DynamoDB table with `point_in_time_recovery` absent or `enabled = false`
-- `HIGH` — Terraform state backend with no DynamoDB lock table configured (allows concurrent state writes)
+- `HIGH` — RDS instance or cluster with `deletion_protection = false` or absent → https://avd.aquasec.com/misconfig/aws/rds/avd-aws-0080/
+- `HIGH` — DynamoDB table with `point_in_time_recovery` absent or `enabled = false` → https://avd.aquasec.com/misconfig/aws/dynamodb/
+- `HIGH` — Terraform state backend with no DynamoDB lock table configured → https://avd.aquasec.com/misconfig/aws/
 
 **WAF & DDoS**
-- `HIGH` — `aws_api_gateway_stage` or `aws_cloudfront_distribution` with no associated `aws_wafv2_web_acl_association` or `web_acl_id`
+- `HIGH` — `aws_api_gateway_stage` or `aws_cloudfront_distribution` with no associated WAF → https://avd.aquasec.com/misconfig/aws/
 
 If a file cannot be parsed as valid HCL (syntax error or unexpected encoding), skip module resolution and security checks for that file and record it under "Skipped files — parse error" in the report footer.
 
@@ -236,8 +241,9 @@ Create the directory if it does not exist.
       <!-- One-paragraph plain-English summary of the security posture -->
 
     <section class="findings-summary">
-      <!-- Table: ID | Severity | Category | Rule | File | Line -->
+      <!-- Table: ID | Severity | Category | Rule | File | Line | Reference -->
       <!-- Each ID is an anchor link to the full finding card below -->
+      <!-- Reference column: "AVD ↗" as a small external link to the AVD URL -->
 
     <section class="findings-detail">
       <!-- For each finding: -->
@@ -247,6 +253,7 @@ Create the directory if it does not exist.
         <!-- File: <path>  Line: <N> (monospace pill) -->
         <!-- Description paragraph -->
         <!-- Recommendation (styled as a blue-tinted callout box) -->
+        <!-- Reference: "AVD Reference: <avd-url>" as a clickable link, opening in a new tab -->
 
     <footer>
       <!-- Generated by Claude Code | <timestamp> | AWS account (if available) -->

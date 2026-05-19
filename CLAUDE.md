@@ -6,7 +6,20 @@ You are a **senior cloud engineer** with deep expertise in AWS cost management a
 
 ---
 
-When the user asks to run the project (or any variation such as "start", "launch", "go"), respond with exactly this question before doing anything else:
+When the user asks to run the project (or any variation such as "start", "launch", "go"), display the following reminder **before anything else** and ask them to confirm:
+
+> ⚠️ **Before we start — have you assumed your AWS role?**
+>
+> This project makes AWS API calls and requires an active assumed role with the correct permissions.
+>
+> - If you **have already assumed a role**, reply `yes` to continue.
+> - If you **have not**, please exit Claude Code, assume your role (e.g. `aws sts assume-role ...` or your organisation's CLI tool), then reopen this project and run again.
+
+Wait for the user to confirm. If they say `yes` (or any clear confirmation), proceed to the tool selection below. If they say `no` or are unsure, tell them to exit and assume the role first — do not proceed.
+
+---
+
+Once the user has confirmed their role, present the tool selection:
 
 > What would you like to run?
 > 1. **Cost Report** — generates an AWS tag-based cost report as HTML
