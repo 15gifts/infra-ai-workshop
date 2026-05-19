@@ -141,6 +141,10 @@ And for the **combined view** (when both regions selected):
 
 ### 6. Generate the HTML report
 
+> **⚠️ HTML generation method — mandatory**
+> Do **not** use the `Write` tool to output the HTML directly. The report content exceeds the 32 K output-token limit and the tool call will fail.
+> Instead, write a Python script to `/tmp/gen_cost_report.py` and execute it with `python3 /tmp/gen_cost_report.py` via the Bash tool. The script must build the complete HTML as a string and write it to the output path with `open(..., "w")`. All cost data, CSS, and JavaScript must be defined inside the script. The Bash tool returns only a short confirmation line, keeping the response well within token limits.
+
 Create the output directory first:
 ```
 mkdir -p ~/development/infra-ai-workshop/reports/cost-report

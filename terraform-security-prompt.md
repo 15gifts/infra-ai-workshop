@@ -196,6 +196,10 @@ Sort order: `CRITICAL` before `HIGH`; within the same severity, sort alphabetica
 
 ### 5. Generate the HTML report
 
+> **⚠️ HTML generation method — mandatory**
+> Do **not** use the `Write` tool to output the HTML directly. The report content exceeds the 32 K output-token limit and the tool call will fail.
+> Instead, write a Python script to `/tmp/gen_tf_report.py` and execute it with `python3 /tmp/gen_tf_report.py` via the Bash tool. The script must build the complete HTML as a string and write it to the output path with `open(..., "w")`. All finding data, CSS, and JavaScript must be defined inside the script. The Bash tool returns only a short confirmation line, keeping the response well within token limits.
+
 **Filename:** take the last two path components of the selected directory (relative to `~/development`), join with `-`, append a date and timestamp:
 ```
 <slug>-security-<YYYY-MM-DD>-<HHmm>.html
