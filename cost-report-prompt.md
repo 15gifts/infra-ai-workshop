@@ -177,6 +177,42 @@ The layout adapts based on whether one or both regions were selected.
       <!-- Scope: Production US / Production EU / Production US + EU -->
       <!-- AWS Account: <id> -->
 
+    <section class="executive-summary">
+      <!--
+        TL;DR EXECUTIVE SUMMARY — the first thing a reader sees after the header.
+        Written for a non-technical stakeholder. Keep it tight and scannable.
+
+        Contents:
+
+        1. STAT BAR (three figures side by side, large and prominent):
+           - Total production spend this month: $X,XXX.XX
+           - MoM delta: +X.X% vs last month  (green if down, red if up)
+           - Largest single team: <name>  $X,XXX.XX  (X% of total)
+
+        2. TL;DR PARAGRAPH (3–4 sentences max):
+           Summarise spend in plain English. Call out anything a senior engineer
+           would flag — e.g. a team whose spend jumped significantly, a service
+           that dominates costs unexpectedly, or untagged spend that indicates
+           resources not attributed to any team.
+
+           Example: "Total production spend for April was $12,430 across both regions,
+           up 18% from March. The platform team accounts for 61% of all spend, driven
+           primarily by EC2 and RDS in eu-west-1. Untagged resources contributed $840
+           this month — these are not attributed to any team and should be investigated.
+           Axiom's costs dropped 34% month-on-month, which may warrant a check that
+           services are still running as expected."
+
+        3. TEAM SNAPSHOT — a compact row of team pills showing:
+           <team colour dot>  platform   $X,XXX.XX   +X.X%
+           <team colour dot>  humara     $X,XXX.XX   -X.X%
+           <team colour dot>  axiom      $X,XXX.XX   +X.X%
+           (include Untagged row only if untagged spend > $0)
+
+        4. REGIONAL SPLIT (only when both regions selected):
+           US $X,XXX.XX (XX%)  vs  EU $X,XXX.XX (XX%)  — shown as a simple
+           two-segment inline SVG bar, not a full donut.
+      -->
+
     <!-- COMBINED VIEW ONLY (both regions selected) -->
     <section class="global-summary">
       <!-- Grand total across both regions: large centred figure + MoM delta badge -->
