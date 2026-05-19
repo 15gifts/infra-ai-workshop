@@ -5,6 +5,10 @@
 **No write, create, update, or delete operations are permitted under any circumstances.**
 All file access must be strictly read-only. Do not modify any Terraform files, state files, AWS resources, or any other content. The only permitted write is the HTML report output file.
 
+## MCP server
+
+This project uses the **`aws-mcp`** MCP server. If any AWS API calls are needed during the review (e.g. verifying resource existence), they must be executed via the `aws-mcp` `call_aws` MCP tool — not the Bash shell. The terraform review is primarily static file analysis and does not require AWS credentials, but the MCP server must be available if AWS lookups become necessary.
+
 ---
 
 ## Task

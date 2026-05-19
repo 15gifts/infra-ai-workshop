@@ -22,6 +22,9 @@ Resources are tagged with `Product` or `SubProduct` (values: `platform`, `humara
 
 ### 1. Verify AWS access
 
+All AWS commands in this prompt must be executed using the **`aws-mcp` `call_aws` MCP tool**, not the Bash shell. Before proceeding, confirm the tool is available. If it is not, stop and tell the user the MCP server is not loaded.
+
+Execute via `call_aws`:
 ```
 aws sts get-caller-identity
 ```
@@ -55,7 +58,7 @@ The **primary reporting month** is `CURR_START`→`CURR_END`. The filename `<YYY
 
 The CE API endpoint is always `us-east-1` regardless of which region's data is being requested. Data is scoped to a region using a `DIMENSION:REGION` filter.
 
-For each region in `SELECTED_REGIONS`, for each tag key (`Product`, `SubProduct`), for each time period (`CURR`, `PREV`), run the following query — **up to 8 queries total** when both regions are selected:
+For each region in `SELECTED_REGIONS`, for each tag key (`Product`, `SubProduct`), for each time period (`CURR`, `PREV`), run the following query via the **`aws-mcp` `call_aws` tool** — **up to 8 queries total** when both regions are selected:
 
 ```
 aws ce get-cost-and-usage \

@@ -26,6 +26,13 @@ If the user asks a question or provides additional context mid-flow, answer it a
 - Cost reports: `~/development/infra-ai-workshop/reports/cost-report/`
 - Terraform security reports: `~/development/infra-ai-workshop/reports/terraform-security/`
 
+## MCP server requirement
+
+This project uses the **`aws-mcp`** MCP server defined in `.mcp.json`. Before running either tool, verify the server is active by confirming the `call_aws` tool is available in your tool list.
+
+- All AWS API calls (`aws ce ...`, `aws sts ...`, etc.) **must** be executed via the `aws-mcp` `call_aws` MCP tool — not via the Bash shell.
+- If the `call_aws` tool is not available, stop and tell the user: *"The aws-mcp MCP server is not loaded. Please ensure `.mcp.json` is present in the project root and restart Claude Code."*
+
 ## Hard rules (apply to both functions)
 
 - **Read-only.** No write, create, update, or delete operations on AWS or the local filesystem, except writing the HTML report output.
