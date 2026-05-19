@@ -19,21 +19,29 @@ Perform a static security review of a Terraform codebase located within `~/devel
 
 ## Steps
 
-### 1. Discover and present available Terraform projects
+### 1. Ask for the scan root and discover available Terraform projects
 
-Run the following command to find all directories under `~/development` that contain at least one `.tf` file, excluding cache directories:
+First, ask the user:
+
+> Which path would you like to scan for Terraform projects? Press Enter to use the default (`~/development`).
+
+If the user provides a path, resolve it to an absolute path and confirm it exists before continuing. If it does not exist, tell the user and ask again. If the user provides no input (empty response), use `~/development` as the scan root.
+
+Refer to the chosen path as `<SCAN_ROOT>` for the rest of this step.
+
+Run the following command to find all directories under `<SCAN_ROOT>` that contain at least one `.tf` file, excluding cache directories:
 
 ```
-find ~/development \( -name "*.tf" \) \
+find <SCAN_ROOT> \( -name "*.tf" \) \
   -not -path "*/.terraform/*" \
   -not -path "*/.terragrunt-cache/*" \
   -type f \
   | sed 's|/[^/]*\.tf$||' | sort -u
 ```
 
-Note: on large `~/development` trees this may take a few seconds. If the result set is very large, inform the user and offer to let them type a path directly.
+Note: on large trees this may take a few seconds. If the result set is very large, inform the user and offer to let them narrow the path.
 
-If no results are returned, inform the user that no Terraform projects were found under `~/development` and stop.
+If no results are returned, inform the user that no Terraform projects were found under `<SCAN_ROOT>` and stop.
 
 Render the resulting directories as an indented tree grouped by path hierarchy. Number each entry. Example:
 
