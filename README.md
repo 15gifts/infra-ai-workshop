@@ -4,7 +4,9 @@ A Claude Code project providing two AI-assisted infrastructure reporting tools: 
 
 ## Getting started
 
-Open this directory in Claude Code. Tell Claude to **run the project** and it will ask which tool you want to use.
+1. **Assume your AWS role** before opening Claude Code — the tools require active AWS credentials with the correct permissions.
+2. Open this directory in Claude Code.
+3. Tell Claude to **run the project**. It will confirm your role is assumed, then ask which tool to run.
 
 ---
 
@@ -12,42 +14,57 @@ Open this directory in Claude Code. Tell Claude to **run the project** and it wi
 
 ### 1. Cost Report
 
-Queries AWS Cost Explorer and generates a styled HTML report showing **production** cloud spend for the last two full calendar months. At runtime, Claude asks whether to report on Production US (`us-east-1`), Production EU (`eu-west-1`), or both with a side-by-side regional comparison.
+Queries AWS Cost Explorer and generates a polished HTML report showing production cloud spend for the last two full calendar months, broken down by region and team.
 
-Resources are identified by the `Product` or `SubProduct` tag (values: `platform`, `humara`, `axiom`) and filtered to production using the `Environment` tag (`live`, `prod`, or `production`).
+**At runtime Claude will ask:**
+- Which region to report on — Production US (`us-east-1`), Production EU (`eu-west-1`), or both
 
-**What it produces:**
-- Region selector at runtime (US / EU / Both)
-- Grand total production spend with month-over-month delta
-- Regional split (US vs EU) when both are selected
-- Per-team cards per region with MoM delta indicators
+**Tag filtering:**
+- Team ownership identified by `Product` or `SubProduct` tag (values: `platform`, `humara`, `axiom`)
+- Scoped to production only via the `Environment` tag (`live`, `prod`, or `production`)
+- Resources with neither tag appear as `Untagged`
+
+**What the report contains:**
+- **Executive summary** — total spend, MoM delta, team snapshot, and a plain-English TL;DR paragraph calling out anomalies
+- Regional split (US vs EU) when both regions are selected
+- Per-team cards with month-over-month delta indicators
 - Donut chart per region showing proportional team spend
 - Top-5 services per team as horizontal bar charts
-- Full service breakdown tables
-- Saved to `reports/cost-report/`
+- Full service breakdown tables per team
 
-**Requirements:** AWS credentials configured locally with Cost Explorer read access (`ce:GetCostAndUsage`, `sts:GetCallerIdentity`). CE API is always queried via `us-east-1` endpoint regardless of selected region.
+**Requirements:** AWS credentials with `ce:GetCostAndUsage` and `sts:GetCallerIdentity`. The CE API is always queried via the `us-east-1` endpoint regardless of selected region.
 
 ---
 
 ### 2. Terraform Security Review
 
-Scans a Terraform codebase statically for HIGH and CRITICAL security issues and produces an HTML findings report.
+Statically analyses a Terraform codebase for HIGH and CRITICAL severity security issues and produces an HTML findings report. No AWS credentials required — analysis is purely local file reading.
 
-**What it does:**
-- Lists all Terraform projects found under `~/development` — pick one by number
-- Scans the selected project plus all referenced local modules and any cached remote modules (`.terraform/modules/`)
-- Checks across 9 security categories: IAM, secrets, network exposure, encryption at rest, encryption in transit, logging, containers/serverless, resilience, and WAF
-- Reports only HIGH and CRITICAL findings, with a summary table and per-finding detail cards
+**At runtime Claude will ask:**
+- Which path to scan (default: `~/development`) — a tree of all Terraform projects found is shown for selection
 
-**What it produces:**
-- Sticky nav bar with live finding counts
-- Executive summary with overall risk level
-- Clickable findings summary table (links to detail cards)
-- Per-finding cards with file, line, resource, description, and remediation callout
-- Saved to `reports/terraform-security/`
+**What it scans:**
+- The selected project plus all referenced local modules and any cached remote modules (`.terraform/modules/`)
+- 9 security categories: IAM, secrets & credentials, network exposure, encryption at rest, encryption in transit, logging & auditing, containers & serverless, resilience & safety, WAF
 
-**Requirements:** Read access to the target Terraform files. No AWS credentials needed — analysis is purely static.
+**What the report contains:**
+- **Sticky nav bar** — CRITICAL and HIGH counts always visible while scrolling
+- **Executive summary (TL;DR)** — overall risk level, stat bar, plain-English briefing for a non-technical reader, and a top-3 hit-list of the most critical findings
+- **Findings summary table** — all findings in one sortable table with clickable links to detail cards
+- **Per-service sections** — findings grouped by AWS service (S3, RDS, IAM, Lambda, etc.), ordered worst-first; each service has a severity bar showing the count of CRITICAL and HIGH findings at a glance
+- **Per-finding detail cards** — resource, file, line, description, remediation callout, and a direct link to the relevant [Aqua AVD](https://avd.aquasec.com/misconfig/aws/) reference
+
+---
+
+## MCP server
+
+Both tools use the **`aws-mcp`** MCP server defined in `.mcp.json`. All AWS API calls are routed through this server automatically. The server is pre-configured in `.claude/settings.local.json` with read-only tool permissions.
+
+---
+
+## Demo Terraform repo
+
+A deliberately insecure Terraform project is available at `~/development/bad-terraform` for demonstrating the security review tool. It models a fictional payments platform ("Acme Payments") with intentional misconfigurations across all 9 security categories.
 
 ---
 
@@ -69,13 +86,16 @@ Reports are timestamped so multiple runs on the same day do not overwrite each o
 
 ```
 infra-ai-workshop/
-├── CLAUDE.md                       # Loaded automatically by Claude Code — routes user intent
-├── README.md                       # This file
-├── cost-report-prompt.md           # Full instructions for the cost report tool
-├── terraform-security-prompt.md    # Full instructions for the security review tool
+├── CLAUDE.md                         # Auto-loaded by Claude Code — persona, routing, MCP, rules
+├── README.md                         # This file
+├── cost-report-prompt.md             # Full instructions for the cost report tool
+├── terraform-security-prompt.md      # Full instructions for the security review tool
+├── .mcp.json                         # aws-mcp server configuration
+├── .claude/
+│   └── settings.local.json           # MCP server enablement + read-only tool allowlist
 └── reports/
-    ├── cost-report/                # Generated cost reports
-    └── terraform-security/         # Generated security reports
+    ├── cost-report/                  # Generated cost reports
+    └── terraform-security/           # Generated security reports
 ```
 
 ---
