@@ -12,19 +12,21 @@ Open this directory in Claude Code. Tell Claude to **run the project** and it wi
 
 ### 1. Cost Report
 
-Queries AWS Cost Explorer and generates a styled HTML report showing **production** cloud spend for the last two full calendar months, broken down by team.
+Queries AWS Cost Explorer and generates a styled HTML report showing **production** cloud spend for the last two full calendar months. At runtime, Claude asks whether to report on Production US (`us-east-1`), Production EU (`eu-west-1`), or both with a side-by-side regional comparison.
 
-Resources are identified by the `Product` or `SubProduct` tag (values: `platform`, `humara`, `axiom`) and filtered to the production environment using the `Environment` tag (`live`, `prod`, or `production`).
+Resources are identified by the `Product` or `SubProduct` tag (values: `platform`, `humara`, `axiom`) and filtered to production using the `Environment` tag (`live`, `prod`, or `production`).
 
 **What it produces:**
+- Region selector at runtime (US / EU / Both)
 - Grand total production spend with month-over-month delta
-- Per-team cards (`platform`, `humara`, `axiom`) with MoM delta indicators
-- Donut chart showing proportional spend across teams
+- Regional split (US vs EU) when both are selected
+- Per-team cards per region with MoM delta indicators
+- Donut chart per region showing proportional team spend
 - Top-5 services per team as horizontal bar charts
 - Full service breakdown tables
 - Saved to `reports/cost-report/`
 
-**Requirements:** AWS credentials configured locally with Cost Explorer read access (`ce:GetCostAndUsage`, `sts:GetCallerIdentity`). Queries always target `us-east-1` (CE global endpoint).
+**Requirements:** AWS credentials configured locally with Cost Explorer read access (`ce:GetCostAndUsage`, `sts:GetCallerIdentity`). CE API is always queried via `us-east-1` endpoint regardless of selected region.
 
 ---
 

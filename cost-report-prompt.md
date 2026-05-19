@@ -9,7 +9,12 @@ All AWS API calls must be strictly read-only (GET/LIST/DESCRIBE operations). Do 
 
 ## Task
 
-Generate a polished HTML cost report from AWS Cost Explorer for the **production environment**, broken down by the tag values **`platform`**, **`humara`**, and **`axiom`**. Resources in this account are tagged using one of two tag keys — `Product` or `SubProduct` — to identify which team owns them. The `Environment` tag is used to filter to production spend only (`live`, `prod`, or `production`). The report covers the **last two full calendar months** (to enable month-over-month comparison) and is saved under `~/development/infra-ai-workshop/reports/cost-report/`.
+Generate a polished HTML cost report from AWS Cost Explorer for the **production environment**, broken down by region and team. The account has production infrastructure in two regions:
+
+- **Production US** — `us-east-1`
+- **Production EU** — `eu-west-1`
+
+Resources are tagged with `Product` or `SubProduct` (values: `platform`, `humara`, `axiom`) to identify team ownership, and with `Environment` (`live`, `prod`, or `production`) to identify production resources. The report covers the **last two full calendar months** (for month-over-month comparison) and is saved under `~/development/infra-ai-workshop/reports/cost-report/`.
 
 ---
 
@@ -23,22 +28,34 @@ aws sts get-caller-identity
 
 If this fails, inform the user that AWS credentials are not configured or are expired and stop. Store the `Account` value for use in the report footer.
 
-### 2. Determine the date range
+### 2. Ask the user which region to report on
+
+Present the following choice and wait for a response before proceeding:
+
+> Which region would you like to report on?
+> 1. **Production US** — us-east-1
+> 2. **Production EU** — eu-west-1
+> 3. **Both** — combined report with regional comparison
+
+Store the selection as `SELECTED_REGIONS`:
+- Option 1 → `["us-east-1"]`
+- Option 2 → `["eu-west-1"]`
+- Option 3 → `["us-east-1", "eu-west-1"]`
+
+### 3. Determine the date range
 
 Use today's date to compute:
 - `PREV_START`: first day of the month before last (e.g. `2026-03-01`)
 - `PREV_END` / `CURR_START`: first day of last month (e.g. `2026-04-01`)
 - `CURR_END`: first day of the current month (e.g. `2026-05-01`)
 
-The **primary reporting month** is `CURR_START`→`CURR_END`. The filename `<YYYY-MM>` token uses `CURR_START` formatted as `YYYY-MM` (e.g. `2026-04`). The prior month is used only for MoM delta calculations.
+The **primary reporting month** is `CURR_START`→`CURR_END`. The filename `<YYYY-MM>` token uses `CURR_START` formatted as `YYYY-MM`. The prior month is used only for MoM delta calculations.
 
-### 3. Pull cost data
+### 4. Pull cost data
 
-AWS Cost Explorer is a global service — always include `--region us-east-1` regardless of the AWS CLI default region.
+The CE API endpoint is always `us-east-1` regardless of which region's data is being requested. Data is scoped to a region using a `DIMENSION:REGION` filter.
 
-Because resources in this account use either `Product` or `SubProduct` as the team identifier tag key (not both on the same resource), run **two queries per month** — one per tag key — and merge the results by team value.
-
-#### Query template (run for both `CURR` and `PREV` date ranges, for both `Product` and `SubProduct`)
+For each region in `SELECTED_REGIONS`, for each tag key (`Product`, `SubProduct`), for each time period (`CURR`, `PREV`), run the following query — **up to 8 queries total** when both regions are selected:
 
 ```
 aws ce get-cost-and-usage \
@@ -49,6 +66,13 @@ aws ce get-cost-and-usage \
   --group-by Type=TAG,Key=<TAG_KEY> Type=DIMENSION,Key=SERVICE \
   --filter '{
     "And": [
+      {
+        "Dimensions": {
+          "Key": "REGION",
+          "Values": ["<REGION>"],
+          "MatchOptions": ["EQUALS"]
+        }
+      },
       {
         "Tags": {
           "Key": "Environment",
@@ -77,13 +101,13 @@ aws ce get-cost-and-usage \
   }'
 ```
 
-Run this four times total:
-1. `TAG_KEY=Product`, primary month
-2. `TAG_KEY=Product`, prior month
-3. `TAG_KEY=SubProduct`, primary month
-4. `TAG_KEY=SubProduct`, prior month
-
 If the API returns an error (e.g. Cost Explorer not enabled, insufficient permissions), display the error message and stop.
+
+**Parsing the response:** Each item in `ResultsByTime[0].Groups` has `Keys: [tag_value, service_name]` and `Metrics.BlendedCost.Amount`.
+
+**Merging tag key results:** For each `(region, team, service)` combination, sum `BlendedCost` from both the `Product` and `SubProduct` queries. Resources are expected to carry one tag key or the other — if a resource carries both tags with the same value it may be double-counted; note this caveat in the report footer.
+
+**Untagged resources:** Rows where `tag_value == ""` represent production resources with no `Product`/`SubProduct` tag. Label these `Untagged`, include in totals, and style with a grey dashed border.
 
 **Parsing the response:** Each item in `ResultsByTime[0].Groups` has `Keys: [tag_value, service_name]` and `Metrics.BlendedCost.Amount`. The `tag_value` is the raw tag value (e.g. `"platform"`, `"humara"`, `"axiom"`, or `""` for absent-tagged resources).
 
@@ -91,22 +115,28 @@ If the API returns an error (e.g. Cost Explorer not enabled, insufficient permis
 
 **Untagged resources:** Rows where `tag_value == ""` represent production resources with no `Product`/`SubProduct` tag. Label these `Untagged` in the report and include them in the grand total with a grey dashed border.
 
-### 4. Compute derived values
+### 5. Compute derived values
 
-Aggregate the merged data for each team (`platform`, `humara`, `axiom`, `Untagged`):
+Organise data as `costs[region][team][service]` for both the current and prior months.
 
-- **Team total (current month)**: sum of all `BlendedCost` rows for that team value across both tag key queries
-- **Team total (prior month)**: same, from the prior-month queries
-- **MoM delta**: `((current - prior) / prior) * 100` — show as `+X.X%` in green or `-X.X%` in red. Show "New spend" if prior = $0; show "—" if both are $0.
-- **Top 5 services** by blended cost for the current month
+For **each region in `SELECTED_REGIONS`**, for **each team** (`platform`, `humara`, `axiom`, `Untagged`):
+- **Team total (current month)**: sum `BlendedCost` across all services for that region + team
+- **Team total (prior month)**: same from prior-month queries
+- **MoM delta**: `((current - prior) / prior) × 100` — `+X.X%` green or `-X.X%` red. "New spend" if prior = $0; "—" if both = $0.
+- **Top 5 services** by blended cost, current month
 - **Each service as % of team total**
 
-Also compute:
-- **Grand total (current month)**: sum across all teams
-- **Grand total (prior month)**: sum across all teams for prior month
-- **Grand total MoM delta**: `((grand_current - grand_prior) / grand_prior) * 100` — shown in the summary banner. Show "First month of data" if prior grand total = $0.
+Also compute for **each region**:
+- **Regional total (current)**: sum across all teams for that region
+- **Regional total (prior)**: same
+- **Regional MoM delta**
 
-### 5. Generate the HTML report
+And for the **combined view** (when both regions selected):
+- **Grand total (current)**: sum of all regional totals
+- **Grand total (prior)**: sum of all regional totals for prior month
+- **Grand total MoM delta** — shown in the summary banner; "First month of data" if prior = $0
+
+### 6. Generate the HTML report
 
 Create the output directory first:
 ```
@@ -132,6 +162,8 @@ where `<YYYY-MM>` = `CURR_START` formatted as `YYYY-MM` and `<HHmm>` = current l
 
 #### HTML structure
 
+The layout adapts based on whether one or both regions were selected.
+
 ```
 <html>
   <head>  <!-- @import fonts, inline <style> block -->
@@ -139,30 +171,37 @@ where `<YYYY-MM>` = `CURR_START` formatted as `YYYY-MM` and `<HHmm>` = current l
     <header>
       <!-- gradient banner -->
       <!-- "Production Cost Report — <Month YYYY>" -->
-      <!-- AWS Account: <id> | Environment filter: live / prod / production -->
+      <!-- Scope: Production US / Production EU / Production US + EU -->
+      <!-- AWS Account: <id> -->
 
-    <section class="summary">
-      <!-- Grand total: large centred figure -->
-      <!-- Grand total MoM delta badge (green/red arrow) -->
-      <!-- Donut chart (inline SVG): spend per team -->
+    <!-- COMBINED VIEW ONLY (both regions selected) -->
+    <section class="global-summary">
+      <!-- Grand total across both regions: large centred figure + MoM delta badge -->
+      <!-- Side-by-side regional totals: US $X,XXX.XX | EU $X,XXX.XX -->
+      <!-- Donut chart (inline SVG): proportional spend by region (US vs EU) -->
 
-    <section class="team-cards">
-      <!-- One card per team: total cost, MoM delta arrow, top service name -->
+    <!-- ONE SECTION PER SELECTED REGION -->
+    <section class="region-block" id="us-east-1">  <!-- or eu-west-1 -->
+      <!-- Region heading: "Production US — us-east-1" (or EU equivalent) -->
+      <!-- Regional total + MoM delta -->
+      <!-- Donut chart: spend per team within this region -->
 
-    <section class="team-detail" id="platform">
-    <section class="team-detail" id="humara">
-    <section class="team-detail" id="axiom">
-    <section class="team-detail" id="untagged">  <!-- only if untagged spend > $0 -->
-      <!-- Team name + colour accent bar -->
-      <!-- Total blended cost (large) + MoM delta -->
-      <!-- Top-5 services horizontal bar chart (inline SVG) -->
-      <!-- Full service breakdown table: Service | Blended Cost | % of Team Total -->
+      <div class="team-cards">
+        <!-- One card per team: total cost, MoM delta, top service -->
+
+      <div class="team-detail" id="<region>-platform">
+      <div class="team-detail" id="<region>-humara">
+      <div class="team-detail" id="<region>-axiom">
+      <div class="team-detail" id="<region>-untagged">  <!-- only if spend > $0 -->
+        <!-- Team name + colour accent bar -->
+        <!-- Total blended cost (large) + MoM delta -->
+        <!-- Top-5 services horizontal bar chart (inline SVG) -->
+        <!-- Full service breakdown table: Service | Blended Cost | % of Team Total -->
 
     <footer>
-      <!-- "Report generated: <datetime>" -->
-      <!-- "AWS Account: <id>" -->
-      <!-- "Note: costs from Product and SubProduct tags are summed per team. -->
-      <!--  Resources with both tags set to the same value may be counted twice." -->
+      <!-- "Report generated: <datetime>" | "AWS Account: <id>" -->
+      <!-- "Costs from Product and SubProduct tags are summed per team." -->
+      <!-- "Resources carrying both tags with the same value may be counted twice." -->
   </body>
 </html>
 ```
@@ -193,7 +232,7 @@ where `<YYYY-MM>` = `CURR_START` formatted as `YYYY-MM` and `<HHmm>` = current l
 - Never display `NaN`, `Infinity`, `null`, or `undefined` — use `$0.00` or `—` as fallbacks
 - If a team has $0 spend in the primary month, show "No spend recorded this month" placeholder instead of a chart
 
-### 6. Open the report
+### 7. Open the report
 
 ```
 open ~/development/infra-ai-workshop/reports/cost-report/cost-report-<YYYY-MM>-<HHmm>.html
