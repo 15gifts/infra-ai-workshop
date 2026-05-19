@@ -12,17 +12,19 @@ Open this directory in Claude Code. Tell Claude to **run the project** and it wi
 
 ### 1. Cost Report
 
-Queries AWS Cost Explorer and generates a styled HTML report showing cloud spend for the last two full calendar months, broken down by team tag.
+Queries AWS Cost Explorer and generates a styled HTML report showing **production** cloud spend for the last two full calendar months, broken down by team.
+
+Resources are identified by the `Product` or `SubProduct` tag (values: `platform`, `humara`, `axiom`) and filtered to the production environment using the `Environment` tag (`live`, `prod`, or `production`).
 
 **What it produces:**
-- Grand total spend with month-over-month delta
+- Grand total production spend with month-over-month delta
 - Per-team cards (`platform`, `humara`, `axiom`) with MoM delta indicators
 - Donut chart showing proportional spend across teams
 - Top-5 services per team as horizontal bar charts
 - Full service breakdown tables
 - Saved to `reports/cost-report/`
 
-**Requirements:** AWS credentials configured locally with Cost Explorer read access (`ce:GetCostAndUsage`, `sts:GetCallerIdentity`).
+**Requirements:** AWS credentials configured locally with Cost Explorer read access (`ce:GetCostAndUsage`, `sts:GetCallerIdentity`). Queries always target `us-east-1` (CE global endpoint).
 
 ---
 

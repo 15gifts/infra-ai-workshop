@@ -17,12 +17,17 @@ Perform a static security review of a Terraform codebase located within `~/devel
 
 ### 1. Discover and present available Terraform projects
 
-Run the following command to find all directories under `~/development` that contain at least one `.tf` file, excluding `.terraform/` cache directories:
+Run the following command to find all directories under `~/development` that contain at least one `.tf` file, excluding cache directories:
 
 ```
-find ~/development \( -name "*.tf" \) -not -path "*/.terraform/*" -type f \
+find ~/development \( -name "*.tf" \) \
+  -not -path "*/.terraform/*" \
+  -not -path "*/.terragrunt-cache/*" \
+  -type f \
   | sed 's|/[^/]*\.tf$||' | sort -u
 ```
+
+Note: on large `~/development` trees this may take a few seconds. If the result set is very large, inform the user and offer to let them type a path directly.
 
 If no results are returned, inform the user that no Terraform projects were found under `~/development` and stop.
 
@@ -53,7 +58,14 @@ find <selected-path> \( -name "*.tf" -o -name "*.tfvars" -o -name "*.tfvars.json
 
 #### 2b. Resolve module references
 
-Read every `.tf` file and extract all `module` blocks. For each `source` value:
+Extract all `source` values from `module` blocks across the root project files:
+
+```
+grep -rh 'source\s*=' <selected-path> --include="*.tf" | grep -v '#' \
+  | sed 's/.*source\s*=\s*["\x27]\(.*\)["\x27].*/\1/'
+```
+
+For each extracted source value:
 
 - **Local path** (`./` or `../` prefix): resolve relative to the declaring file. Recursively find all `.tf` files in that directory and add them to the scan scope. Follow any further module references found inside those files transitively. Track visited absolute paths to prevent infinite loops from circular references.
 
@@ -86,67 +98,78 @@ Read every file in the scan scope. For each finding record:
 | **Description** | What is wrong and why it matters |
 | **Recommendation** | The exact change needed to remediate it |
 
-#### Security categories
+#### Severity definitions
+
+Assign severity based on the following guidance — do not deviate from these assignments:
+
+- **CRITICAL**: direct path to data exposure, account compromise, or loss of infrastructure control. Requires no additional exploitation step.
+- **HIGH**: weakens the security posture materially, but typically requires an additional step or condition to be exploited (e.g. an attacker already has network access, or a misconfigured service must be discovered first).
+
+#### Security categories and severity assignments
 
 **IAM & Permissions**
-- Wildcard actions (`"Action": "*"`) or wildcard resources (`"Resource": "*"`) in IAM policies without compensating conditions
-- `assume_role_policy` allowing any principal (`"AWS": "*"` or `"*"`)
-- IAM inline policies on users, groups, or roles (prefer managed policies)
-- Lambda execution roles with `AdministratorAccess` or equivalent wildcard policies
-- Missing MFA condition on IAM roles used by humans
-- `iam_role` with overly broad trust relationship (e.g. any service in any account)
+- `CRITICAL` — Wildcard actions (`"Action": "*"`) or wildcard resources (`"Resource": "*"`) in IAM policies without compensating conditions
+- `CRITICAL` — `assume_role_policy` allowing any principal (`"AWS": "*"` or `"*"`)
+- `CRITICAL` — Lambda execution roles with `AdministratorAccess` or equivalent wildcard policies
+- `CRITICAL` — Terraform state backend with no encryption (`encrypt = false` or absent on S3 backend) — state files contain plaintext secrets and resource ARNs
+- `HIGH` — IAM inline policies on users, groups, or roles (prefer managed policies for auditability)
+- `HIGH` — Missing MFA condition on IAM roles used by humans
+- `HIGH` — `iam_role` with overly broad trust relationship (e.g. any service in any account)
 
 **Secrets & Credentials**
-- Hardcoded passwords, tokens, API keys, or private keys in any `.tf` or `.tfvars` file
-- Variables with names suggesting secrets (`password`, `secret`, `token`, `key`, `api_key`) where `sensitive = false` or `sensitive` is absent
-- Secrets passed as plaintext `environment` variables to Lambda, ECS task definitions, or EKS pods
-- `aws_secretsmanager_secret_version` with `secret_string` set to a literal value rather than a reference
+- `CRITICAL` — Hardcoded passwords, tokens, API keys, or private keys in any `.tf` or `.tfvars` file
+- `CRITICAL` — `aws_secretsmanager_secret_version` with `secret_string` set to a literal value rather than a `data` or `var` reference
+- `HIGH` — Variables with names suggesting secrets (`password`, `secret`, `token`, `key`, `api_key`) where `sensitive = true` is absent
+- `HIGH` — Secrets passed as plaintext `environment` variables to Lambda, ECS task definitions, or EKS pods (prefer `valueFrom` referencing Secrets Manager or SSM Parameter Store)
 
 **Network & Public Exposure**
-- Security group ingress rules with `cidr_blocks = ["0.0.0.0/0"]` or `ipv6_cidr_blocks = ["::/0"]` on ports: 22 (SSH), 3389 (RDP), 5432 (PostgreSQL), 3306 (MySQL), 1433 (MSSQL), 6379 (Redis), 27017 (MongoDB), 9200 (Elasticsearch), 8080, 8443
-- S3 bucket `acl` set to `"public-read"` or `"public-read-write"`
-- S3 `aws_s3_bucket_public_access_block` with any of `block_public_acls`, `block_public_policy`, `ignore_public_acls`, or `restrict_public_buckets` set to `false`
-- `aws_s3_bucket` with no associated `aws_s3_bucket_public_access_block` resource
-- RDS instance or cluster with `publicly_accessible = true`
-- ALB or API Gateway stage using HTTP (port 80, no redirect to HTTPS)
-- CloudFront distribution `viewer_protocol_policy` set to `"allow-all"` (permits plain HTTP)
+- `CRITICAL` — Security group ingress rules open to `0.0.0.0/0` or `::/0` on sensitive ports: 22 (SSH), 3389 (RDP), 5432 (PostgreSQL), 3306 (MySQL), 1433 (MSSQL), 6379 (Redis), 27017 (MongoDB), 9200 (Elasticsearch)
+- `CRITICAL` — S3 bucket `acl` set to `"public-read"` or `"public-read-write"`
+- `CRITICAL` — S3 `aws_s3_bucket_public_access_block` with `block_public_acls`, `block_public_policy`, `ignore_public_acls`, or `restrict_public_buckets` set to `false`
+- `CRITICAL` — S3 bucket policy that allows `"Principal": "*"` without a condition
+- `CRITICAL` — RDS instance or cluster with `publicly_accessible = true`
+- `HIGH` — `aws_s3_bucket` with no associated `aws_s3_bucket_public_access_block` resource
+- `HIGH` — ALB or API Gateway stage serving HTTP without a redirect to HTTPS
+- `HIGH` — CloudFront distribution `viewer_protocol_policy` set to `"allow-all"`
 
 **Encryption at Rest**
-- S3 bucket with no `aws_s3_bucket_server_side_encryption_configuration`
-- RDS instance or cluster with `storage_encrypted = false` or `storage_encrypted` absent
-- EBS volume with `encrypted = false` or `encrypted` absent
-- EBS snapshot with `encrypted = false`
-- SQS queue with no `kms_master_key_id`
-- SNS topic with no `kms_master_key_id`
-- DynamoDB table with `server_side_encryption` block absent or `enabled = false`
-- ElastiCache replication group with `at_rest_encryption_enabled = false`
-- KMS key with `enable_key_rotation = false` or rotation absent
+- `HIGH` — S3 bucket with no `aws_s3_bucket_server_side_encryption_configuration`
+- `HIGH` — RDS instance or cluster with `storage_encrypted = false` or attribute absent
+- `HIGH` — EBS volume with `encrypted = false` or attribute absent
+- `HIGH` — EBS snapshot with `encrypted = false`
+- `HIGH` — SQS queue with no `kms_master_key_id`
+- `HIGH` — SNS topic with no `kms_master_key_id`
+- `HIGH` — DynamoDB table with `server_side_encryption` block absent or `enabled = false`
+- `HIGH` — ElastiCache replication group with `at_rest_encryption_enabled = false`
+- `HIGH` — KMS key with `enable_key_rotation = false` or rotation attribute absent
 
 **Encryption in Transit**
-- ElastiCache replication group with `transit_encryption_enabled = false`
-- MSK cluster with `encryption_in_transit` client broker set to `"PLAINTEXT"`
-- RDS with `iam_database_authentication_enabled = false` (absence of IAM auth increases plaintext credential risk)
+- `HIGH` — ElastiCache replication group with `transit_encryption_enabled = false`
+- `HIGH` — MSK cluster with `encryption_in_transit` client broker set to `"PLAINTEXT"`
+- `HIGH` — RDS instance with `iam_database_authentication_enabled = false` (promotes plaintext password auth)
 
 **Logging & Auditing**
-- S3 bucket with no `aws_s3_bucket_logging` resource
-- CloudTrail with `enable_log_file_validation = false`
-- CloudTrail that is not multi-region (`is_multi_region_trail = false` or absent)
-- VPC with no associated `aws_flow_log` resource
-- API Gateway stage with no `access_log_settings`
-- ALB with `access_logs` block absent or `enabled = false`
+- `HIGH` — S3 bucket with no `aws_s3_bucket_logging` resource
+- `HIGH` — CloudTrail with `enable_log_file_validation = false`
+- `HIGH` — CloudTrail that is not multi-region (`is_multi_region_trail = false` or absent)
+- `HIGH` — VPC with no associated `aws_flow_log` resource
+- `HIGH` — API Gateway stage with no `access_log_settings`
+- `HIGH` — ALB with `access_logs` block absent or `enabled = false`
 
 **Container & Serverless**
-- ECR repository with `image_scanning_configuration` absent or `scan_on_push = false`
-- ECR repository with `image_tag_mutability = "MUTABLE"`
-- Lambda function with `tracing_config` absent or `mode = "PassThrough"`
+- `HIGH` — ECR repository with `image_scanning_configuration` absent or `scan_on_push = false`
+- `HIGH` — ECR repository with `image_tag_mutability = "MUTABLE"` (allows tag overwriting, breaking immutable deploys)
+- `HIGH` — Lambda function with `tracing_config` absent or `mode = "PassThrough"`
 
 **Resilience & Safety**
-- RDS instance or cluster with `deletion_protection = false` or absent
-- DynamoDB table with `point_in_time_recovery` absent or `enabled = false`
-- Terraform backend (`terraform { backend {} }`) with no encryption or state locking configured (e.g. S3 backend missing `encrypt = true` or DynamoDB lock table)
+- `HIGH` — RDS instance or cluster with `deletion_protection = false` or attribute absent
+- `HIGH` — DynamoDB table with `point_in_time_recovery` absent or `enabled = false`
+- `HIGH` — Terraform state backend with no DynamoDB lock table configured (allows concurrent state writes)
 
 **WAF & DDoS**
-- `aws_api_gateway_stage` or `aws_cloudfront_distribution` with no associated `aws_wafv2_web_acl_association` or `web_acl_id`
+- `HIGH` — `aws_api_gateway_stage` or `aws_cloudfront_distribution` with no associated `aws_wafv2_web_acl_association` or `web_acl_id`
+
+If a file cannot be parsed as valid HCL (syntax error or unexpected encoding), skip module resolution and security checks for that file and record it under "Skipped files — parse error" in the report footer.
 
 ### 4. Filter and sort findings
 
@@ -156,11 +179,12 @@ Sort order: `CRITICAL` before `HIGH`; within the same severity, sort alphabetica
 
 ### 5. Generate the HTML report
 
-**Filename:** take the last two path components of the selected directory, join with `-`, append severity stamp and timestamp:
+**Filename:** take the last two path components of the selected directory (relative to `~/development`), join with `-`, append a date and timestamp:
 ```
 <slug>-security-<YYYY-MM-DD>-<HHmm>.html
 ```
-Example: `my-infra/terraform/prod` at 14:32 → `terraform-prod-security-2026-05-19-1432.html`
+- If the path has only one component (e.g. `~/development/infra`), use the parent directory name as the first component: `development-infra-security-...html`
+- Example: `my-infra/terraform/prod` at 14:32 → `terraform-prod-security-2026-05-19-1432.html`
 
 **Save to:**
 ```
@@ -227,8 +251,8 @@ Create the directory if it does not exist.
 - HIGH cards: `rgba(249,115,22,0.05)` background tint
 - File/line references: monospace font, dark pill (`#1e293b` background, `#94a3b8` text)
 - Recommendation callout: `rgba(59,130,246,0.08)` background, `#3b82f6` left border
-- Findings summary table: zebra-striped rows, sticky header, sortable by severity
-- Category headings in the detail section group findings visually
+- Findings summary table: zebra-striped rows, sticky header — include a small inline `<script>` block (no external libraries) that adds click-to-sort on column headers. Sort by Severity by default (CRITICAL first).
+- Category headings group findings in the detail section visually; within each category, CRITICAL cards appear before HIGH
 
 ### 6. Open the report
 
@@ -244,6 +268,6 @@ open ~/development/infra-ai-workshop/reports/terraform-security/<filename>.html
 - Static analysis only — do not execute, plan, init, validate, or apply any Terraform configuration.
 - Do not fetch or download remote module sources. Only scan files already present on disk.
 - Follow local module references transitively; track visited absolute paths to prevent infinite loops.
-- If a file is binary or cannot be read, skip it and list it in the report footer under "Skipped files".
+- If a file is binary, unparseable, or unreadable, skip it and list it in the report footer under "Skipped files".
 - Never display `null`, `undefined`, `NaN`, or raw error objects in the HTML output.
-- All rendering must use inline HTML/CSS only — no external JS libraries.
+- Inline `<script>` blocks for table interactivity are permitted. External JS libraries are not.
