@@ -3,13 +3,13 @@
 ## CRITICAL CONSTRAINT — READ-ONLY
 
 **No write, create, update, or delete operations are permitted under any circumstances.**
-All file and AWS API access must be strictly read-only. Do not modify any Terraform files, state files, AWS resources, or any other content. Only read files and generate the local HTML report output.
+All file access must be strictly read-only. Do not modify any Terraform files, state files, AWS resources, or any other content. The only permitted write is the HTML report output file.
 
 ---
 
 ## Task
 
-Perform a security review of a Terraform codebase located within `~/development`. Identify all **HIGH** and **CRITICAL** severity findings and produce a self-contained HTML report saved under `~/development/infra-ai-workshop/reports/terraform-security/`.
+Perform a static security review of a Terraform codebase located within `~/development`. Identify all **HIGH** and **CRITICAL** severity findings and produce a self-contained HTML report saved under `~/development/infra-ai-workshop/reports/terraform-security/`.
 
 ---
 
@@ -17,174 +17,218 @@ Perform a security review of a Terraform codebase located within `~/development`
 
 ### 1. Discover and present available Terraform projects
 
-Run the following command to find all directories under `~/development` that contain at least one `.tf` file:
+Run the following command to find all directories under `~/development` that contain at least one `.tf` file, excluding `.terraform/` cache directories:
 
 ```
-find ~/development -name "*.tf" -not -path "*/.terraform/*" -type f | sed 's|/[^/]*\.tf$||' | sort -u
+find ~/development \( -name "*.tf" \) -not -path "*/.terraform/*" -type f \
+  | sed 's|/[^/]*\.tf$||' | sort -u
 ```
 
-Take the resulting list of directories and render them as an indented tree, grouped by their path hierarchy. For example:
+If no results are returned, inform the user that no Terraform projects were found under `~/development` and stop.
+
+Render the resulting directories as an indented tree grouped by path hierarchy. Number each entry. Example:
 
 ```
 ~/development/
-├── my-infra/
-│   ├── terraform/
-│   │   ├── prod/
-│   │   └── staging/
-│   └── modules/
-│       └── networking/
-└── another-repo/
-    └── infra/
+├── 1. my-infra/terraform/prod
+├── 2. my-infra/terraform/staging
+├── 3. my-infra/modules/networking
+└── 4. another-repo/infra
 ```
 
-Present this tree to the user and ask:
+Present the tree and ask:
 
-> Here are the Terraform projects found under `~/development`. Which one would you like to review? You can type the full path or the number next to it.
+> Here are the Terraform projects found under `~/development`. Which one would you like to review? Enter the number or full path.
 
-Number each leaf directory in the list for easy selection. Wait for the user to choose before proceeding.
+Wait for the user to choose before proceeding. Resolve the selection to its full absolute path and confirm the directory exists.
 
-Resolve the chosen path to its full absolute form. Confirm the directory exists before proceeding. If it does not exist, inform the user and stop.
+### 2. Discover all files to scan (read-only)
 
-### 2. Discover Terraform files and resolve modules (read-only)
-
-#### 2a. Find all `.tf` and `.tfvars` files in the selected project
+#### 2a. Find root project files
 
 ```
-find <selected-path> -name "*.tf" -o -name "*.tfvars" -o -name "*.tfvars.json" | grep -v "/.terraform/" | sort
+find <selected-path> \( -name "*.tf" -o -name "*.tfvars" -o -name "*.tfvars.json" \) \
+  -not -path "*/.terraform/*" -type f | sort
 ```
 
-#### 2b. Discover referenced modules
+#### 2b. Resolve module references
 
-Read every `.tf` file found above and extract all `module` blocks. For each `source` attribute:
+Read every `.tf` file and extract all `module` blocks. For each `source` value:
 
-- **Local path** (`source` starts with `./` or `../`): resolve the path relative to the `.tf` file that declares it. Add all `.tf` files found recursively under that resolved directory to the scan scope. Repeat this step for any new module references found inside those files (i.e. follow the chain transitively until no new paths are found).
+- **Local path** (`./` or `../` prefix): resolve relative to the declaring file. Recursively find all `.tf` files in that directory and add them to the scan scope. Follow any further module references found inside those files transitively. Track visited absolute paths to prevent infinite loops from circular references.
 
-- **`.terraform/modules/` cache** (remote modules already initialised locally): if a `.terraform/modules/` directory exists within the selected project, include all `.tf` files found inside it. These are downloaded copies of remote modules (registry, git) and must be scanned in the same way as local source files.
+- **Cached remote modules** (`.terraform/modules/` directory present in the project root): include all `.tf` files found inside it. These are locally downloaded copies and must be scanned identically to source files.
 
-- **Unresolved remote sources** (registry paths, git URLs — not downloaded): record them in a "Referenced remote modules (not scanned)" list for the report footer. Do not attempt to download or fetch them.
+- **Unresolved remote sources** (registry addresses, git URLs, HTTP URLs — not present on disk): record the source string in a "Referenced remote modules — not scanned" list for the report. Do not attempt to fetch them.
 
 #### 2c. Build the final file list
 
-Collect all unique `.tf`, `.tfvars`, and `.tfvars.json` file paths across:
-- The selected project directory (step 2a)
-- All resolved local module directories (step 2b)
-- `.terraform/modules/` cached remote modules (step 2b)
+Deduplicate all discovered paths. Record counts by origin:
+- Root project files
+- Local module files
+- Cached remote module files (`.terraform/modules/`)
 
-Deduplicate the list. This is the complete set of files to analyse in step 3.
-
-Note in the report header: total files scanned, how many came from the root project vs local modules vs cached remote modules.
+This combined list is the complete scan scope for step 3.
 
 ### 3. Analyse for security issues
 
-Read every discovered `.tf` and `.tfvars` file and evaluate them against the following categories. For each finding, determine its **severity** (`CRITICAL` or `HIGH`) and record:
+Read every file in the scan scope. For each finding record:
 
-- **ID** — sequential finding number (e.g. `TF-001`)
-- **Severity** — `CRITICAL` or `HIGH`
-- **File** — relative file path from the project root
-- **Line** — line number(s) where the issue appears
-- **Rule** — short rule name (see categories below)
-- **Description** — what is wrong and why it matters
-- **Recommendation** — the specific change needed to remediate it
+| Field | Description |
+|---|---|
+| **ID** | Sequential: `TF-001`, `TF-002`, … |
+| **Severity** | `CRITICAL` or `HIGH` |
+| **Category** | One of the categories below |
+| **Rule** | Short rule name, e.g. `OPEN_SSH_INGRESS` |
+| **File** | Path relative to the selected project root |
+| **Line** | Line number(s) |
+| **Resource** | The Terraform resource name/label where applicable |
+| **Description** | What is wrong and why it matters |
+| **Recommendation** | The exact change needed to remediate it |
 
-#### Security Categories to Check
+#### Security categories
 
-**Identity & Access Management**
-- Overly permissive IAM policies (`"*"` actions or resources without conditions)
-- `assume_role_policy` that allows any principal (`"AWS": "*"`)
-- IAM inline policies instead of managed policies
-- Missing MFA conditions on sensitive roles
+**IAM & Permissions**
+- Wildcard actions (`"Action": "*"`) or wildcard resources (`"Resource": "*"`) in IAM policies without compensating conditions
+- `assume_role_policy` allowing any principal (`"AWS": "*"` or `"*"`)
+- IAM inline policies on users, groups, or roles (prefer managed policies)
+- Lambda execution roles with `AdministratorAccess` or equivalent wildcard policies
+- Missing MFA condition on IAM roles used by humans
+- `iam_role` with overly broad trust relationship (e.g. any service in any account)
 
 **Secrets & Credentials**
-- Hardcoded secrets, passwords, tokens, or API keys in any `.tf` or `.tfvars` file
-- `sensitive = false` on variables that clearly contain secrets
-- Secrets passed as plaintext environment variables to Lambda or ECS
+- Hardcoded passwords, tokens, API keys, or private keys in any `.tf` or `.tfvars` file
+- Variables with names suggesting secrets (`password`, `secret`, `token`, `key`, `api_key`) where `sensitive = false` or `sensitive` is absent
+- Secrets passed as plaintext `environment` variables to Lambda, ECS task definitions, or EKS pods
+- `aws_secretsmanager_secret_version` with `secret_string` set to a literal value rather than a reference
 
-**Network & Exposure**
-- Security groups with `0.0.0.0/0` or `::/0` ingress on sensitive ports (22, 3389, 5432, 3306, 6379, 27017)
-- S3 buckets with `acl = "public-read"` or `acl = "public-read-write"`
-- `block_public_acls`, `block_public_policy`, `ignore_public_acls`, or `restrict_public_buckets` set to `false` on S3 buckets
-- RDS instances with `publicly_accessible = true`
-- Load balancers or API Gateways using HTTP (not HTTPS)
+**Network & Public Exposure**
+- Security group ingress rules with `cidr_blocks = ["0.0.0.0/0"]` or `ipv6_cidr_blocks = ["::/0"]` on ports: 22 (SSH), 3389 (RDP), 5432 (PostgreSQL), 3306 (MySQL), 1433 (MSSQL), 6379 (Redis), 27017 (MongoDB), 9200 (Elasticsearch), 8080, 8443
+- S3 bucket `acl` set to `"public-read"` or `"public-read-write"`
+- S3 `aws_s3_bucket_public_access_block` with any of `block_public_acls`, `block_public_policy`, `ignore_public_acls`, or `restrict_public_buckets` set to `false`
+- `aws_s3_bucket` with no associated `aws_s3_bucket_public_access_block` resource
+- RDS instance or cluster with `publicly_accessible = true`
+- ALB or API Gateway stage using HTTP (port 80, no redirect to HTTPS)
+- CloudFront distribution `viewer_protocol_policy` set to `"allow-all"` (permits plain HTTP)
 
-**Encryption**
-- S3 buckets without `server_side_encryption_configuration`
-- RDS instances with `storage_encrypted = false`
-- EBS volumes with `encrypted = false`
-- SQS queues without KMS encryption
-- SNS topics without KMS encryption
+**Encryption at Rest**
+- S3 bucket with no `aws_s3_bucket_server_side_encryption_configuration`
+- RDS instance or cluster with `storage_encrypted = false` or `storage_encrypted` absent
+- EBS volume with `encrypted = false` or `encrypted` absent
+- EBS snapshot with `encrypted = false`
+- SQS queue with no `kms_master_key_id`
+- SNS topic with no `kms_master_key_id`
+- DynamoDB table with `server_side_encryption` block absent or `enabled = false`
+- ElastiCache replication group with `at_rest_encryption_enabled = false`
+- KMS key with `enable_key_rotation = false` or rotation absent
+
+**Encryption in Transit**
+- ElastiCache replication group with `transit_encryption_enabled = false`
+- MSK cluster with `encryption_in_transit` client broker set to `"PLAINTEXT"`
+- RDS with `iam_database_authentication_enabled = false` (absence of IAM auth increases plaintext credential risk)
 
 **Logging & Auditing**
-- S3 buckets without access logging enabled
-- CloudTrail with `enable_log_file_validation = false` or `is_multi_region_trail = false`
-- VPC Flow Logs not enabled on VPCs
-- API Gateway without access logging
+- S3 bucket with no `aws_s3_bucket_logging` resource
+- CloudTrail with `enable_log_file_validation = false`
+- CloudTrail that is not multi-region (`is_multi_region_trail = false` or absent)
+- VPC with no associated `aws_flow_log` resource
+- API Gateway stage with no `access_log_settings`
+- ALB with `access_logs` block absent or `enabled = false`
 
-**Miscellaneous**
-- `deletion_protection = false` on RDS or DynamoDB
-- Terraform state backend without encryption or locking configured
-- Use of deprecated or insecure TLS versions
+**Container & Serverless**
+- ECR repository with `image_scanning_configuration` absent or `scan_on_push = false`
+- ECR repository with `image_tag_mutability = "MUTABLE"`
+- Lambda function with `tracing_config` absent or `mode = "PassThrough"`
 
-### 4. Filter to HIGH and CRITICAL only
+**Resilience & Safety**
+- RDS instance or cluster with `deletion_protection = false` or absent
+- DynamoDB table with `point_in_time_recovery` absent or `enabled = false`
+- Terraform backend (`terraform { backend {} }`) with no encryption or state locking configured (e.g. S3 backend missing `encrypt = true` or DynamoDB lock table)
 
-Only include findings with severity `HIGH` or `CRITICAL` in the report. If no such findings exist, the report should clearly state "No HIGH or CRITICAL issues found."
+**WAF & DDoS**
+- `aws_api_gateway_stage` or `aws_cloudfront_distribution` with no associated `aws_wafv2_web_acl_association` or `web_acl_id`
+
+### 4. Filter and sort findings
+
+Retain only `CRITICAL` and `HIGH` severity findings. If none exist, the report must clearly state **"No HIGH or CRITICAL issues found"** — do not omit the section.
+
+Sort order: `CRITICAL` before `HIGH`; within the same severity, sort alphabetically by file path, then by line number.
 
 ### 5. Generate the HTML report
 
-Determine the report filename from the target path:
-- Take the last two path components of the target directory, joined with a dash
-- Append a datestamp and timestamp: `<project-slug>-security-<YYYY-MM-DD>-<HHmm>.html`
-- `<HHmm>` is the current local time in 24-hour format (e.g. `1432`), so multiple runs on the same day do not overwrite each other
-- Example: for path `my-infra/terraform/prod` at 14:32 → `terraform-prod-security-2026-05-19-1432.html`
+**Filename:** take the last two path components of the selected directory, join with `-`, append severity stamp and timestamp:
+```
+<slug>-security-<YYYY-MM-DD>-<HHmm>.html
+```
+Example: `my-infra/terraform/prod` at 14:32 → `terraform-prod-security-2026-05-19-1432.html`
 
-Save to:
+**Save to:**
 ```
 ~/development/infra-ai-workshop/reports/terraform-security/<filename>.html
 ```
-
 Create the directory if it does not exist.
 
-#### Report Design
+#### Design
 
-- **Dark theme**, consistent with cost report styling (`#0f172a` background, `#1e3a5f` header gradient)
-- **Fully self-contained** — all CSS inline in a `<style>` block, no external JS or stylesheets (Google Fonts via `@import` is acceptable)
-- Severity badges:
-  - `CRITICAL` → red (`#ef4444`) with white text
-  - `HIGH` → orange (`#f97316`) with white text
+- **Dark theme**: `#0f172a` background, `#0f172a`→`#1e3a5f` gradient header
+- **Google Fonts**: `Inter` body, `JetBrains Mono` for code/paths (via `@import`)
+- **Severity colours**:
+  - `CRITICAL` badge: `#ef4444` background, white text
+  - `HIGH` badge: `#f97316` background, white text
+- All CSS inline in a `<style>` block — no external stylesheets beyond the Google Fonts `@import`
+- No external JavaScript libraries
 
-#### Report Structure
+#### HTML structure
 
 ```
-<header>
-  Project path reviewed
-  Total files scanned (root: N | local modules: N | cached remote modules: N)
-  Modules scanned: list of resolved module paths
-  Unresolved remote modules: list (not scanned)
-  Review date
-  Finding counts: CRITICAL (N) | HIGH (N)
+<html>
+  <head>  <!-- @import fonts, inline <style> -->
+  <body>
 
-<section class="executive-summary">
-  One-paragraph plain-English summary of the overall security posture
-  Risk level indicator: CRITICAL / HIGH / MEDIUM / LOW / PASS
+    <!-- Sticky nav bar -->
+    <nav class="sticky-bar">
+      CRITICAL: N  |  HIGH: N  |  Files scanned: N
 
-<section class="findings">
-  For each finding (CRITICAL first, then HIGH, sorted by file):
-    <div class="finding-card severity-{critical|high}">
-      Severity badge | ID | Rule name
-      File: <path>  Line: <N>
-      Description paragraph
-      Recommendation paragraph (styled as a callout box)
+    <header>
+      <!-- gradient banner -->
+      <!-- Project path | Review date | Files scanned breakdown -->
+      <!-- Modules scanned list -->
+      <!-- Unresolved remote modules (not scanned) list — if any -->
 
-<footer>
-  Generated by Claude Code | Timestamp
+    <section class="executive-summary">
+      <!-- Overall risk level pill: CRITICAL / HIGH / PASS -->
+      <!-- One-paragraph plain-English summary of the security posture -->
+
+    <section class="findings-summary">
+      <!-- Table: ID | Severity | Category | Rule | File | Line -->
+      <!-- Each ID is an anchor link to the full finding card below -->
+
+    <section class="findings-detail">
+      <!-- For each finding: -->
+      <div class="finding-card severity-{critical|high}" id="TF-001">
+        <!-- Severity badge | ID | Category | Rule name -->
+        <!-- Resource: <terraform resource label> -->
+        <!-- File: <path>  Line: <N> (monospace pill) -->
+        <!-- Description paragraph -->
+        <!-- Recommendation (styled as a blue-tinted callout box) -->
+
+    <footer>
+      <!-- Generated by Claude Code | <timestamp> | AWS account (if available) -->
+      <!-- Unresolved remote modules list -->
+      <!-- Skipped/unreadable files list -->
+  </body>
+</html>
 ```
 
-#### Visual Details
+#### Visual details
 
-- Finding cards have a left border coloured by severity (4px solid)
-- CRITICAL findings have a subtle red background tint (`rgba(239,68,68,0.05)`)
-- HIGH findings have a subtle orange background tint (`rgba(249,115,22,0.05)`)
-- A sticky top nav bar shows `CRITICAL: N  |  HIGH: N` at a glance
-- Code snippets (file paths, line references) use a monospace font with a dark pill background
+- Finding cards: 4px left border in severity colour
+- CRITICAL cards: `rgba(239,68,68,0.05)` background tint
+- HIGH cards: `rgba(249,115,22,0.05)` background tint
+- File/line references: monospace font, dark pill (`#1e293b` background, `#94a3b8` text)
+- Recommendation callout: `rgba(59,130,246,0.08)` background, `#3b82f6` left border
+- Findings summary table: zebra-striped rows, sticky header, sortable by severity
+- Category headings in the detail section group findings visually
 
 ### 6. Open the report
 
@@ -196,9 +240,10 @@ open ~/development/infra-ai-workshop/reports/terraform-security/<filename>.html
 
 ## Constraints
 
-- **READ-ONLY**: No file writes other than the HTML report output. No Terraform plan, apply, init, or validate commands that contact remote APIs or modify local state.
-- Do not execute any Terraform commands — analyse the source files statically.
-- Do not attempt to download or fetch remote module sources. Only scan modules that are already present on disk (local relative paths or `.terraform/modules/` cache).
-- Follow local module references transitively but guard against circular references — track visited paths and stop if a path has already been scanned.
-- If a file is binary or unreadable, skip it and note it in the report footer.
-- All chart and badge rendering must use inline HTML/CSS — no external JS libraries.
+- **READ-ONLY**: No file writes other than the HTML report output. No `terraform` commands of any kind.
+- Static analysis only — do not execute, plan, init, validate, or apply any Terraform configuration.
+- Do not fetch or download remote module sources. Only scan files already present on disk.
+- Follow local module references transitively; track visited absolute paths to prevent infinite loops.
+- If a file is binary or cannot be read, skip it and list it in the report footer under "Skipped files".
+- Never display `null`, `undefined`, `NaN`, or raw error objects in the HTML output.
+- All rendering must use inline HTML/CSS only — no external JS libraries.
